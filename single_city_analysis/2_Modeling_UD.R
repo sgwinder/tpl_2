@@ -1,5 +1,8 @@
 ##### Modeling Userdays ######
 
+# Useful code from below has been copied into 3_Modeling_UD_ROS_components (I'm 90% sure)
+# Mostly ignore this and work from/update 3_
+
 # Note: code below allows for calculation of proporation of gridcell that is public land,
 # but I don't think this is necessary. We should be able to use area directly, since it 
 # will only measure the area of the public lands within the grid

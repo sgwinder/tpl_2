@@ -10,8 +10,8 @@ library(rgdal)
 library(raster)
 library(ggplot2)
 
-setwd("/home/sgwinder/Documents/TPL/GIS/Data/Tucson/Calculated/")
-city <- "tucson"
+city <- "salem"
+setwd(paste0("/home/sgwinder/Documents/TPL/GIS/Data/", city, "/Calculated/"))
 
 #ROS_Salem <- readOGR("GIS/Data/Calculated/", "ROS_WGS_84")
 #ROS_Salem@data
@@ -53,10 +53,10 @@ ROS_dissolved <- st_union(ROS_sf)
 ROS_dis_valid <- st_make_valid(ROS_dissolved)
 #st_write(ROS_dis_valid, paste0(city, "_ROS_dissolved_valid.shp"))
 
-ROS_gridded <- st_intersection(grid_1, ROS_dis_valid) # started at 10:31
+ROS_gridded <- st_intersection(grid_1, ROS_dis_valid) # started at 1:01, still going at 4:44 when comp shut.
 # < 1 min for pittsburgh, wichita on xps, 
 # 6 min for tucson on xps
-# 4.75 hr total run time for Salem on Mac
+# 4.75 hr total run time for Salem on Mac, ~the same on xps
 # just ran for charleston in <30 sec on xps
 
 #st_write(ROS_gridded, paste0(city, "_ROS_gridded.shp"))
@@ -78,15 +78,37 @@ ROS_class_gridded <- st_intersection(grid_1, ROS_valid)
 # started at 3:12 pm, finished at 3:34 - why so much quicker??
 st_write(ROS_class_gridded, paste0(city, "_ROS_class_gridded.shp"))
 
+###### Combining 5 gridded ROS regions into a single shapefile #########
 
-############## Combining 5 gridded AOI regions into a single shapefile ##########
 setwd("/home/sgwinder/Documents/TPL/GIS/Data/")
 
-salem <- st_read("Salem/Calculated", "ROS_gridded")
-wichita <- st_read("Wichita/Calculated/", "wichita_ROS_gridded")
-pittsburgh <- st_read("Pittsburgh/Calculated/", "pittsburgh_ROS_gridded")
-tucson <- st_read("Tucson/Calculated/", "tucson_ROS_gridded")
-charleston <- st_read("Charleston/Calculated/", "charleston_ROS_gridded")
+salem_ros <- st_read("salem/Calculated", "salem_ROS_class_gridded")
+wichita_ros <- st_read("wichita/Calculated/", "wichita_ROS_class_gridded")
+pittsburgh_ros <- st_read("pittsburgh/Calculated/", "pittsburgh_ROS_class_gridded")
+tucson_ros <- st_read("tucson/Calculated/", "tucson_ROS_class_gridded")
+charleston_ros <- st_read("charleston/Calculated/", "charleston_ROS_class_gridded")
+
+# create a column in each sf telling which city it's near
+salem_ros <- salem_ros %>% mutate(city = "salem")
+wichita_ros <- wichita_ros %>% mutate(city = "wichita")
+pittsburgh_ros <- pittsburgh_ros %>% mutate(city = "pittsburgh")
+tucson_ros <- tucson_ros %>% mutate(city = "tucson")
+charleston_ros <- charleston_ros %>% mutate(city = "charleston")
+
+# make a single sf object with all cities included
+five_cities_ros <- rbind(salem_ros, wichita_ros, pittsburgh_ros, tucson_ros, charleston_ros)
+#ggplot(five_cities)
+st_write(five_cities_ros, "five_cities_AOI_ROS.shp")
+
+
+######## Combine 5 gridded regions (w/o ROS class) into a single shapefile #####
+# to feed to globalrec
+
+salem <- st_read("salem/Calculated", "ROS_gridded")
+wichita <- st_read("wichita/Calculated/", "wichita_ROS_gridded")
+pittsburgh <- st_read("pittsburgh/Calculated/", "pittsburgh_ROS_gridded")
+tucson <- st_read("tucson/Calculated/", "tucson_ROS_gridded")
+charleston <- st_read("charleston/Calculated/", "charleston_ROS_gridded")
 
 # create a column in each sf telling which city it's near
 salem <- salem %>% dplyr::select(-test) %>% mutate(city = "salem")
