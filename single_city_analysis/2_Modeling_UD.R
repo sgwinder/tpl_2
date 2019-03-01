@@ -118,7 +118,9 @@ ROS_presence <- ROS_area %>%
   mutate_at(vars(Backcountry, FrontCountryI, FrontCountryII, MidCountry, 
                     Rural, Urban), 
                function(x) as.integer(x != 0))
-  
+summary(ROS_presence)
+plot(density(ROS_presence$log_avg_ann_ud))
+
 ROS_dummy_model <- lm(log_avg_ann_ud ~ Backcountry + MidCountry  + FrontCountryII + FrontCountryI + Rural + 
              Urban + prop_area, data = ROS_presence)
 summary(ROS_dummy_model)
