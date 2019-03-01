@@ -4,7 +4,6 @@
 
 library(sf)
 library(tidyverse)
-#library(dplyr)
 library(ggplot2)
 library(coefplot)
 library(corrgram)
@@ -56,7 +55,6 @@ ROS_area <- ROS_class_gridded %>%
   mutate(log_avg_ann_ud = log(avg_ann_ud + 1))
 
 ###### Modeling UD ~ ROS + Area, where each ROS class is a dummy variable #######
-#### What about the presence/absence approach for each ROS class? ####
 ROS_presence <- ROS_area %>% 
   mutate_at(vars(Backcountry, FrontCountryI, FrontCountryII, MidCountry, 
                  Rural, Urban), 
