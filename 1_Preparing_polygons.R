@@ -10,7 +10,7 @@ library(rgdal)
 library(raster)
 library(ggplot2)
 
-city <- "salem"
+city <- "wichita"
 setwd(paste0("/home/sgwinder/Documents/TPL/GIS/Data/", city, "/Calculated/"))
 
 #ROS_Salem <- readOGR("GIS/Data/Calculated/", "ROS_WGS_84")
@@ -78,6 +78,10 @@ ROS_class_gridded <- st_intersection(grid_1, ROS_valid)
 # started at 3:12 pm, finished at 3:34 - why so much quicker??
 st_write(ROS_class_gridded, paste0(city, "_ROS_class_gridded.shp"))
 
+
+###########################################################################
+####### Combining regions into single shapefiles
+
 ###### Combining 5 gridded ROS regions into a single shapefile #########
 
 setwd("/home/sgwinder/Documents/TPL/GIS/Data/")
@@ -121,3 +125,23 @@ charleston <- charleston %>% mutate(city = "charleston")
 five_cities <- rbind(salem, wichita, pittsburgh, tucson, charleston)
 #ggplot(five_cities)
 st_write(five_cities, "five_cities_AOI.shp")
+
+####### Combining 5 grids into a single shapefile
+
+salem_grid <- st_read("salem/Calculated", "salem_grid_1")
+wichita_grid <- st_read("wichita/Calculated/", "wichita_grid_1")
+pittsburgh_grid <- st_read("pittsburgh/Calculated/", "pittsburgh_grid_1")
+tucson_grid <- st_read("tucson/Calculated/", "tucson_grid_1")
+charleston_grid <- st_read("charleston/Calculated/", "charleston_grid_1")
+
+# create a column in each sf telling which city it's near
+salem_grid <- salem_grid %>% mutate(city = "salem")
+wichita_grid <- wichita_grid %>% mutate(city = "wichita")
+pittsburgh_grid <- pittsburgh_grid %>% mutate(city = "pittsburgh")
+tucson_grid <- tucson_grid %>% mutate(city = "tucson")
+charleston_grid <- charleston_grid %>% mutate(city = "charleston")
+
+# make a single sf object with all cities included
+five_cities_grid <- rbind(salem_grid, wichita_grid, pittsburgh_grid, tucson_grid, charleston_grid)
+#ggplot(five_cities)
+st_write(five_cities_grid, "five_cities_AOI_grid.shp")
