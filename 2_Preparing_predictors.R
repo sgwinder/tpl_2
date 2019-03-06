@@ -4,7 +4,7 @@
 library(sf)
 library(tidyverse)
 library(ggplot2)
-
+library(raster)
 
 setwd("/home/sgwinder/Documents/TPL/GIS/Data/")
 
@@ -62,5 +62,24 @@ ROS_presence <- ROS_area %>%
 
 ###### Human Modification #####
 city <- "wichita"
-setwd(paste0("home/sgwinder/Documents/TPL/GIS/Data/", city))
+setwd(paste0("/home/sgwinder/Documents/TPL/GIS/Data/", city))
+hmod <- raster(paste0(city, "_human_mod.tif"))
+
+
+
+# reproject into wgs 84
+# grab projection info from ROS_gridded
+newproj <- projection(ROS_gridded_pid_2)
+
+hmod_84 <- projectRaster(hmod, crs =  newproj)
+
+# convert to point shapefile
+#hmod_pts <- st_as_sf(rasterToPoints(hmod_84, spatial = TRUE)) # super slow
+
+
+# crop to only include public lands
+# convert ROS_gridded sf to a spatial dataframe
+ROS_gridded_sp <- as_Spatial(ROS_gridded_pid_2)
+hmod_cropped <- mask(hmod_84, ROS_gridded_sp) # should probably do this the wichita grid, rather than all
+#writeRaster(hmod_cropped, paste0(city,"_hmod_cropped.tif"))
 
