@@ -58,28 +58,49 @@ ROS_presence <- ROS_area %>%
                  Rural, Urban), 
             function(x) as.integer(x != 0))
 
+############ Water/oceans ######################
+
 
 
 ###### Human Modification #####
-city <- "wichita"
-setwd(paste0("/home/sgwinder/Documents/TPL/GIS/Data/", city))
-hmod <- raster(paste0(city, "_human_mod.tif"))
+cities <- c("wichita", "pittsburgh", "tucson", "charleston", "salem")
+mean_hmod <- tibble(hmod_mean = NA_real_, cityxgrid = NA_character_)
+
+for(city in cities){ # start 10:29 for 5 cities
+  #city <- "wichita"
+  setwd(paste0("/home/sgwinder/Documents/TPL/GIS/Data/", city))
+  hmod <- raster(paste0(city, "_human_mod.tif"))
+  city_grid <- st_read("Calculated/", paste0(city, "_ROS_gridded"))
+  
+  # reproject into wgs 84
+  # grab projection info from city_grid
+  newproj <- projection(city_grid)
+  hmod_84 <- projectRaster(hmod, crs =  newproj)
+  
+  # convert ROS_gridded sf to a spatial dataframe
+  city_grid_sp <- as_Spatial(city_grid)
+  
+  # calculating the mean hmod for each polygon
+  city_mean_hmod <- raster::extract(hmod_84, city_grid_sp, small = TRUE, 
+                                    fun = mean, na.rm = TRUE, sp = TRUE)
+  #st_write(st_as_sf(city_mean_hmod), paste0("Calculated/", city, "_mean_hmod.shp"))
+  
+  city_hmod_df <- st_as_sf(city_mean_hmod) %>% 
+    st_set_geometry(NULL)  %>%
+    mutate(cityxgrid = paste0(city, "x", grid_id))
+  
+  # manually renaming, since extract seems to call this column diff things at diff times
+  colnames(city_hmod_df)[2] <- "hmod_mean"
+  city_hmod_df <- dplyr::select(city_hmod_df, hmod_mean, cityxgrid)
+   
+  mean_hmod <- bind_rows(mean_hmod, city_hmod_df)
+}
+mean_hmod <- mean_hmod %>% filter(complete.cases(.))
+
+#write_csv(mean_hmod, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_mean_hmod.csv")
+
+predictors <- ROS_presence %>% left_join(mean_hmod, by = "cityxgrid") %>% 
+  dplyr::select(-grid_id, -city, -area)
 
 
-
-# reproject into wgs 84
-# grab projection info from ROS_gridded
-newproj <- projection(ROS_gridded_pid_2)
-
-hmod_84 <- projectRaster(hmod, crs =  newproj)
-
-# convert to point shapefile
-#hmod_pts <- st_as_sf(rasterToPoints(hmod_84, spatial = TRUE)) # super slow
-
-
-# crop to only include public lands
-# convert ROS_gridded sf to a spatial dataframe
-ROS_gridded_sp <- as_Spatial(ROS_gridded_pid_2)
-hmod_cropped <- mask(hmod_84, ROS_gridded_sp) # should probably do this the wichita grid, rather than all
-#writeRaster(hmod_cropped, paste0(city,"_hmod_cropped.tif"))
 
