@@ -50,7 +50,7 @@ ROS_area <- ROS_class_gridded %>%
             Urban = sum(Urban, na.rm = T),
             Total_area = sum(Backcountry, FrontCountryI, FrontCountryII, MidCountry,
                              Rural, Urban)) %>%
-  right_join(ROS_gridded_pid_2, by = "cityxgrid") %>%
+  right_join(ROS_gridded_pid_2 %>% st_set_geometry(NULL), by = "cityxgrid") %>%
   mutate(log_avg_ann_ud = log(avg_ann_ud + 1))
 
 ROS_presence <- ROS_area %>% 
@@ -59,8 +59,36 @@ ROS_presence <- ROS_area %>%
             function(x) as.integer(x != 0))
 
 ############ Water/oceans ######################
+## Note that there are 3 water polygons we are incorporating
+## Water lines and water areas represent fresh water, and are intersected with the polygons and
+# combined into a single presence/absence score for fresh water in the public lands
 
+water_lines <- st_read("USA_wat/", "USA_water_lines_dcw")
+water_bodies <- st_read("USA_wat/", "USA_water_areas_dcw")
 
+# check projection
+projection(water_bodies)
+projection(water_lines)
+
+water_bodies_int <- st_intersection(ROS_gridded_pid, water_bodies)
+water_lines_int <- st_intersection(ROS_gridded_pid, water_lines)
+
+# extracting vectors of cityxgrids that contain freshwater
+water_bodies_grids <- c(as.character(water_bodies_int$cityxgrid), 
+                        as.character(water_lines_int$cityxgrid))
+
+predictors <- ROS_presence %>% 
+  mutate(freshwater = if_else(cityxgrid %in% water_bodies_grids, TRUE, FALSE)) %>% 
+  dplyr::select(-grid_id, -area)
+
+## Ocean is intersecting with the entire grid, and serves as a proxy for distance to the ocean
+ocean <- st_read("water-polygons-split-4326/", "water_polygons")
+projection(ocean)
+
+ocean_int <- st_intersection(grid, ocean)
+ocean_present <- as.character(ocean_int$cityxgrid)
+
+predictors <- predictors %>% mutate(ocean = if_else(cityxgrid %in% ocean_present, TRUE, FALSE))
 
 ###### Human Modification #####
 cities <- c("wichita", "pittsburgh", "tucson", "charleston", "salem")
@@ -99,8 +127,10 @@ mean_hmod <- mean_hmod %>% filter(complete.cases(.))
 
 #write_csv(mean_hmod, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_mean_hmod.csv")
 
-predictors <- ROS_presence %>% left_join(mean_hmod, by = "cityxgrid") %>% 
-  dplyr::select(-grid_id, -city, -area)
+predictors <- predictors %>% left_join(mean_hmod, by = "cityxgrid") 
 
-
+#### still need to incorporate
+# Distance to nearest major city
+# Transportation (length of streets, railroads)
+# Land ownership?
 
