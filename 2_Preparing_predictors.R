@@ -78,7 +78,7 @@ water_bodies_grids <- c(as.character(water_bodies_int$cityxgrid),
                         as.character(water_lines_int$cityxgrid))
 
 predictors <- ROS_presence %>% 
-  mutate(freshwater = if_else(cityxgrid %in% water_bodies_grids, TRUE, FALSE)) %>% 
+  mutate(freshwater = if_else(cityxgrid %in% water_bodies_grids, 1, 0)) %>% 
   dplyr::select(-grid_id, -area)
 
 ## Ocean is intersecting with the entire grid, and serves as a proxy for distance to the ocean
@@ -88,10 +88,70 @@ projection(ocean)
 ocean_int <- st_intersection(grid, ocean)
 ocean_present <- as.character(ocean_int$cityxgrid)
 
-predictors <- predictors %>% mutate(ocean = if_else(cityxgrid %in% ocean_present, TRUE, FALSE))
+predictors <- predictors %>% mutate(ocean = if_else(cityxgrid %in% ocean_present, 1, 0))
 
-###### Human Modification #####
+########## Transportation #####
+wgs_84 <- projection(grid)
+
+# Railroads. Every town has a railroads file, so we will first import and combine them
+wichita_rail <- st_read("wichita/", "wichita_railroads")
+salem_rail <- st_read("salem/", "salem_railroads")
+pittsburgh_rail <- st_read("pittsburgh/", "pittsburgh_railroads")
+charleston_rail <- st_read("charleston/", "charleston_railroads")
+tucson_rail <- st_read("tucson/", "tucson_railroads")
+
+# check projections (all the same, but not wgs_84)
+identical(projection(wichita_rail), projection(tucson_rail))
+
+# combine into single dataset
+salem_rail_geom <- salem_rail %>% dplyr::select(geometry)
+others_rail_geom <- rbind(pittsburgh_rail, charleston_rail, tucson_rail, wichita_rail) %>% 
+  dplyr::select(geometry)
+
+railroads <- rbind(salem_rail_geom, others_rail_geom) %>% st_transform(crs = wgs_84)
+
+rail_int <- st_intersection(grid, railroads)
+rail_present <- as.character(rail_int$cityxgrid)
+
+predictors <- predictors %>% mutate(railroad = if_else(cityxgrid %in% rail_present, 1, 0))
+
+##### Streets #######
+# these are bigger and more complex files, so doing one city at a time
+# also, currently projected as albers equal area. We reproject grid to match, so our results 
+# are in meters and thus more interpretable and accurate
+
 cities <- c("wichita", "pittsburgh", "tucson", "charleston", "salem")
+street_lengths <- tibble(cityxgrid = NA_character_, street_len = NA_real_)
+
+for(city in cities){ # started at 4:50
+  streets <- st_read(city, paste0(city, "_streets"))
+
+  street_proj <- st_crs(streets)
+  grid_transform <- st_transform(grid, crs = street_proj)
+  
+  street_int <- st_intersection(grid_transform, streets %>% dplyr::select(geometry))
+  
+  city_street_lengths <- street_int %>% 
+    mutate(length = st_length(street_int)) %>% 
+    st_set_geometry(NULL) %>%
+    group_by(cityxgrid) %>%
+    summarise(street_len = sum(length))
+  
+  street_lengths <- bind_rows(street_lengths, city_street_lengths)
+}
+
+street_lengths <- street_lengths %>% filter(complete.cases(.))
+
+#write_csv(street_lengths, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
+
+predictors <- predictors %>% left_join(street_lengths, by = "cityxgrid") 
+
+library(corrgram)
+corrgram(predictors[,c("log_avgann", "prop_area", "street_len",
+                       "freshwater", "ocean", "railroad")],
+         upper.panel = panel.pts, lower.panel = panel.cor, diag.panel = panel.density)
+ 
+###### Human Modification #####
 mean_hmod <- tibble(hmod_mean = NA_real_, cityxgrid = NA_character_)
 
 for(city in cities){ # start 10:29 for 5 cities
@@ -129,8 +189,11 @@ mean_hmod <- mean_hmod %>% filter(complete.cases(.))
 
 predictors <- predictors %>% left_join(mean_hmod, by = "cityxgrid") 
 
+
+
 #### still need to incorporate
 # Distance to nearest major city
-# Transportation (length of streets, railroads)
+# Transportation (length of streets)
 # Land ownership?
+# wilderness - none around wichita or pittsburgh
 
