@@ -91,7 +91,7 @@ ocean_present <- as.character(ocean_int$cityxgrid)
 predictors <- predictors %>% mutate(ocean = if_else(cityxgrid %in% ocean_present, 1, 0))
 
 ########## Transportation #####
-wgs_84 <- projection(grid)
+wgs_84 <- st_crs(grid)
 
 # Railroads. Every town has a railroads file, so we will first import and combine them
 wichita_rail <- st_read("wichita/", "wichita_railroads")
@@ -114,6 +114,25 @@ rail_int <- st_intersection(grid, railroads)
 rail_present <- as.character(rail_int$cityxgrid)
 
 predictors <- predictors %>% mutate(railroad = if_else(cityxgrid %in% rail_present, 1, 0))
+
+########## Wilderness ###########
+# none around wichita or pittsburgh
+charleston_wild <- st_read("charleston/", "charleston_wilderness")
+salem_wild <- st_read("salem/", "salem_wilderness")
+tucson_wild <- st_read("tucson/", "tucson_wilderness")
+
+# bind em together
+wilderness <- rbind(charleston_wild %>% dplyr::select(geometry),
+      salem_wild %>% dplyr::select(geometry), 
+      tucson_wild %>% dplyr::select(geometry)) %>%
+  st_transform(crs = wgs_84)
+
+# intersect with public lands poly
+wild_int <- st_intersection(ROS_gridded_pid, wilderness)
+wild_present <- as.character(wild_int$cityxgrid)
+
+predictors <- predictors %>% mutate(wilderness = if_else(cityxgrid %in% wild_present, 1, 0))
+
 
 ##### Streets #######
 # these are bigger and more complex files, so doing one city at a time
@@ -143,7 +162,7 @@ for(city in cities){ # started at 4:50
 street_lengths <- street_lengths %>% filter(complete.cases(.))
 
 #write_csv(street_lengths, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
-
+street_lengths <- read_csv("/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
 predictors <- predictors %>% left_join(street_lengths, by = "cityxgrid") 
 
 library(corrgram)
@@ -186,14 +205,38 @@ for(city in cities){ # start 10:29 for 5 cities
 mean_hmod <- mean_hmod %>% filter(complete.cases(.))
 
 #write_csv(mean_hmod, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_mean_hmod.csv")
+#mean_hmod <- read_csv("/home/sgwinder/Documents/TPL/GIS/Data/five_cities_mean_hmod.csv")
 
 predictors <- predictors %>% left_join(mean_hmod, by = "cityxgrid") 
 
 
+########## Distance to nearest major city #########
+## Thoughts: distance to nearest US city > 150k
+pop_places <- st_read("../../../GIS/ne_10m_populated_places_simple/", 
+                      "ne_10m_populated_places_simple")
+
+big_US_cities <- pop_places %>% filter(sov0name == "United States", pop_max >= 150000)
+
+# testing some smaller datasets
+#small_poly <- ROS_gridded_pid_2 %>% filter(between(pid, 1, 15))
+#two_cities <- big_US_cities %>% filter(name == "Salem" | name == "Portland")
+
+# maybe I should do this region by region - e.g. crop cities to an area around the polygon,
+# then only calculate distances between that twohour drive and those cities
+distances <- st_distance(ROS_gridded_pid_2, big_US_cities) # took ~10 min
+distances_df <- data.frame(cityxgrid = ROS_gridded_pid_2$cityxgrid, 
+                      dists = unclass(distances),
+                      stringsAsFactors = F)
+
+distances_df$mindist <- apply(distances_df[ ,2:ncol(distances_df)], MARGIN = 1, min)
+mindists_m <- distances_df[,c("cityxgrid", "mindist")]
+#write_csv(mindists_m, "five_cities_min_dists_meters.csv")
+
+predictors <- predictors %>% left_join(mindists_m, by = "cityxgrid")
+
+#write_csv(predictors, "five_cities_predictors.csv")
+plot(density(predictors$mindist))
 
 #### still need to incorporate
-# Distance to nearest major city
-# Transportation (length of streets)
 # Land ownership?
-# wilderness - none around wichita or pittsburgh
 
