@@ -1,4 +1,10 @@
 ##### Modeling 5 cities two hour drives #####
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(corrgram)
+
+
 modplot <- function(x){
   par(mfrow = c(2,2))
   plot(x, ask = F)
@@ -7,19 +13,90 @@ modplot <- function(x){
 
 su <- summary
 
+setwd("~/Documents/TPL/")
+predictors <- read_csv("GIS/Data/five_cities_predictors.csv")
+
+summary(predictors)
+
+# rescale mindist and street_len
+### TODO: We need to think about changing the street length calc, since our streets are cropped to
+# the extent of the two hour drive polygons, so edge grids are not actually representing total
+# lenght of all streets within that gridcell
+predictors <- predictors %>% 
+  mutate(dist_stand = mindist/max(mindist), 
+         street_stand = if_else(is.na(street_len), 0, street_len/max(street_len, na.rm = T)))
+
+#predictors %>% filter(is.na(street_len) )
+
 
 mod1 <- lm(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-             mindist + street_len + hmod_mean, data = predictors)
+             dist_stand + street_stand + hmod_mean, data = predictors)
 su(mod1); modplot(mod1)
 
 pairs(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
         mindist + street_len + hmod_mean, data = predictors)
-library(lme4)
 
 mod2 <- lmer(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-               mindist + street_len + hmod_mean + (1|city), data = predictors)
+               dist_stand + street_stand + hmod_mean + (1|city), data = predictors)
 su(mod2); modplot(mod2)
+ranef(mod2)
 
-mod3 <- lm(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-             mindist + street_len + hmod_mean + city, data = predictors)
+mod3 <- lm(log_avgann ~ -1 + prop_area + freshwater + ocean + railroad + wilderness +
+             dist_stand + street_stand + hmod_mean + city, data = predictors)
 su(mod3); modplot(mod3)
+
+## adding random slopes/intercepts for each variable
+mod2 <- lmer(log_avgann ~  (ocean + railroad + wilderness +
+               dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
+su(mod2); modplot(mod2)
+ranef(mod2)
+predictors$mod2preds <- fitted(mod2)
+
+ggplot(predictors, aes(x = prop_area, y = log_avgann, group = city)) +
+  geom_point(alpha = .3) +
+  geom_line(aes(y = mod2preds)) +
+  facet_wrap(~city)
+# too much else going on - I think these lines are so scribbly because there are multiple predictors
+
+## why don't we actually just do one predictor here, to create some plots
+mod5 <- lmer(log_avgann ~ hmod_mean + (hmod_mean|city), data = predictors)
+su(mod5)
+ranef(mod5)
+predictors$mod5preds <- fitted(mod5)
+
+ggplot(predictors, aes(x = hmod_mean, y = log_avgann, group = city)) +
+  geom_point(alpha = .3) +
+  geom_line(aes(y = mod5preds)) +
+  facet_wrap(~city)
+
+
+
+ggplot(predictors, aes(x = hmod_mean, y = log_avgann)) +
+  geom_point(alpha = .3) +
+  facet_wrap(~city)
+
+ggplot(predictors, aes(x = street_stand, y = log_avgann)) +
+  geom_point(alpha = .3) +
+  facet_wrap(~city)
+
+ggplot(predictors, aes(x = dist_stand, y = log_avgann)) +
+  geom_point(alpha = .3) +
+  facet_wrap(~city)
+# should we do max dist on a city by city basis?
+
+ggplot(predictors, aes(x = freshwater, y = log_avgann)) +
+  geom_point(alpha = .3) +
+  facet_wrap(~city) 
+
+ggplot(predictors) +
+  geom_histogram(aes(x = log_avgann)) +
+  facet_wrap(~city)
+
+corrgram(predictors[, c("log_avgann", "freshwater", "ocean", "railroad", "wilderness", 
+                        "dist_stand", "street_stand")],
+         upper.panel = panel.pts(col = predictors$city))
+
+## simply doing interaction terms between city and other predictors
+mod4 <- lm(log_avgann ~ -1 + freshwater*city + ocean*city + railroad*city +
+             wilderness*city + dist_stand*city + street_stand*city, data = predictors)
+su(mod4); modplot(mod4)
