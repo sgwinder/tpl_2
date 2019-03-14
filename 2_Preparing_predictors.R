@@ -135,6 +135,11 @@ predictors <- predictors %>% mutate(wilderness = if_else(cityxgrid %in% wild_pre
 
 
 ##### Streets #######
+
+#### TODO: Our street layers only extend to the edge of the two hour drive polygons.
+### So, grids on the edge are not actually calculating the total street length within the gridcell,
+### but rather only within the public lands inside that gridcell
+
 # these are bigger and more complex files, so doing one city at a time
 # also, currently projected as albers equal area. We reproject grid to match, so our results 
 # are in meters and thus more interpretable and accurate
@@ -162,7 +167,7 @@ for(city in cities){ # started at 4:50
 street_lengths <- street_lengths %>% filter(complete.cases(.))
 
 #write_csv(street_lengths, "/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
-street_lengths <- read_csv("/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
+#street_lengths <- read_csv("/home/sgwinder/Documents/TPL/GIS/Data/five_cities_street_lengths.csv")
 predictors <- predictors %>% left_join(street_lengths, by = "cityxgrid") 
 
 library(corrgram)
