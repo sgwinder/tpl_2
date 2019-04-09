@@ -1,4 +1,5 @@
 ##### Modeling 5 cities two hour drives #####
+### Requires output from 2_preparing_predictors
 library(tidyverse)
 library(ggplot2)
 library(lme4)
@@ -27,7 +28,7 @@ predictors <- predictors %>%
          street_stand = if_else(is.na(street_len), 0, street_len/max(street_len, na.rm = T)))
 
 #predictors %>% filter(is.na(street_len) )
-
+plot(density(predictors$log_avgann))
 
 mod1 <- lm(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
              dist_stand + street_stand + hmod_mean, data = predictors)
@@ -92,6 +93,10 @@ ggplot(predictors) +
   geom_histogram(aes(x = log_avgann)) +
   facet_wrap(~city)
 
+ggplot(predictors) +
+  geom_histogram(aes(x = avg_ann_ud^(1/3))) +
+  facet_wrap(~city)
+
 corrgram(predictors[, c("log_avgann", "freshwater", "ocean", "railroad", "wilderness", 
                         "dist_stand", "street_stand")],
          upper.panel = panel.pts(col = predictors$city))
@@ -100,3 +105,4 @@ corrgram(predictors[, c("log_avgann", "freshwater", "ocean", "railroad", "wilder
 mod4 <- lm(log_avgann ~ -1 + freshwater*city + ocean*city + railroad*city +
              wilderness*city + dist_stand*city + street_stand*city, data = predictors)
 su(mod4); modplot(mod4)
+
