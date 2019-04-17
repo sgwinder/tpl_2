@@ -47,7 +47,7 @@ mod3 <- lm(log_avgann ~ -1 + prop_area + freshwater + ocean + railroad + wildern
 su(mod3); modplot(mod3)
 
 ## adding random slopes/intercepts for each variable
-mod2 <- lmer(log_avgann ~  (ocean + railroad + wilderness +
+mod2 <- lmer(log_avgann ~ -1 + (ocean + railroad + wilderness +
                dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
 su(mod2); modplot(mod2)
 ranef(mod2)
@@ -58,6 +58,29 @@ ggplot(predictors, aes(x = prop_area, y = log_avgann, group = city)) +
   geom_line(aes(y = mod2preds)) +
   facet_wrap(~city)
 # too much else going on - I think these lines are so scribbly because there are multiple predictors
+
+#### real quick, since the model above had a singular fit, which is probably an issue...
+## let's try a bayesian model from rstanarm (https://stats.stackexchange.com/questions/378939/dealing-with-singular-fit-in-mixed-models)
+## Note that this is quick a sloppy, so should probably be done more carefully if I"m going for it later
+library(rstanarm)
+options(mc.cores = parallel::detectCores())
+mod1bayes <- stan_lmer(log_avgann ~ (ocean + railroad + wilderness +
+                           dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
+mod1bayes
+launch_shinystan(mod1bayes)
+# wow, what a cool interface!
+# the intercept term seems to be having some issues, and could perhaps be dropped
+# But more importantly, it's clear that the normality assumption is pretty wildly inappropriate
+# Perhaps we could try with a neg bin...
+predictors$avg_ann_rnd <- round(predictors$avg_ann_ud)
+
+nb_mod_bayes <- stan_glmer.nb(avg_ann_rnd ~ (ocean + railroad + wilderness +
+                                              dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
+
+
+
+
+
 
 ## why don't we actually just do one predictor here, to create some plots
 mod5 <- lmer(log_avgann ~ hmod_mean + (hmod_mean|city), data = predictors)
