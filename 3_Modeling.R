@@ -1,9 +1,17 @@
 ##### Modeling 5 cities two hour drives #####
 ### Requires output from 2_preparing_predictors
+
+
+## Side note: useful text about hierarchical models: http://idiom.ucsd.edu/~rlevy/pmsl_textbook/chapters/pmsl_8.pdf
+
 library(tidyverse)
 library(ggplot2)
 library(lme4)
 library(corrgram)
+
+library(rstanarm)
+options(mc.cores = parallel::detectCores())
+library(bayesplot)
 
 
 modplot <- function(x){
@@ -62,11 +70,12 @@ ggplot(predictors, aes(x = prop_area, y = log_avgann, group = city)) +
 #### real quick, since the model above had a singular fit, which is probably an issue...
 ## let's try a bayesian model from rstanarm (https://stats.stackexchange.com/questions/378939/dealing-with-singular-fit-in-mixed-models)
 ## Note that this is quick a sloppy, so should probably be done more carefully if I"m going for it later
-library(rstanarm)
-options(mc.cores = parallel::detectCores())
+
 mod1bayes <- stan_lmer(log_avgann ~ (ocean + railroad + wilderness +
                            dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
 mod1bayes
+# write it out
+#write_rds(mod1bayes, "StanModelRuns/lm_mod_bayes.rds")
 launch_shinystan(mod1bayes)
 # wow, what a cool interface!
 # the intercept term seems to be having some issues, and could perhaps be dropped
@@ -77,10 +86,65 @@ predictors$avg_ann_rnd <- round(predictors$avg_ann_ud)
 nb_mod_bayes <- stan_glmer.nb(avg_ann_rnd ~ (ocean + railroad + wilderness +
                                               dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
 
+nb_mod_bayes
+launch_shinystan(nb_mod_bayes)
+pp_check(nb_mod_bayes) + scale_x_continuous(limits = c(0, 10))
+## this posterior predictive check is way better than the normality assuming one above
+# intercepts are still a little weird
+
+## Let's save this model out
+#write_rds(nb_mod_bayes, "StanModelRuns/nb_mod_bayes.rds")
+
+identical(names(nb_mod_bayes$coefficients),  names(mod1bayes$coefficients))
+cbind(nb_mod_bayes$coefficients, mod1bayes$coefficients)
+
+### I want to plot the residuals on a map
+nb_mod_bayes_output <- tibble(cityxgrid = nb_mod_bayes$data$cityxgrid, 
+       avg_ann_rnd = nb_mod_bayes$data$avg_ann_rnd,
+       resids_nb_mod_bayes = nb_mod_bayes$residuals, 
+       fitted_nb_mod_bayes = nb_mod_bayes$fitted.values)
+
+## pulling in a gridded mpa
+library(sf)
+ROS_gridded_pid <- st_read("GIS/Data/", "five_cities_AOI_pid")
+ROS_gridded_pid <- ROS_gridded_pid %>% mutate(cityxgrid = paste0(city, "x", grid_id))
+
+## joining on the model outputs
+cities_mod_output <- ROS_gridded_pid %>% left_join(nb_mod_bayes_output, by = "cityxgrid")
+#plot(cities_mod_output %>% filter(city == "salem"))
+
+## writing it out to a shapefile so I can click around in QGIS
+#st_write(cities_mod_output, "GIS/Data/nb_mod_bayes_output.shp")
+
+### Let's make a plot showing the posterior predictive distributions (/95% credible intervals) of 
+# e.g. each city's response to water
+
+# prep the model chains for plotting
+posterior <- as.array(nb_mod_bayes)
+dimnames(posterior)
+
+mcmc_intervals(posterior, regex_pars = "ocean ")
+mcmc_intervals(posterior, regex_pars = "Intercept) ")
+mcmc_intervals(posterior, regex_pars = "freshwater ")
+mcmc_intervals(posterior, regex_pars = "railroad ")
+mcmc_intervals(posterior, regex_pars = "hmod_mean ")
+mcmc_intervals(posterior, regex_pars = "street_stand ")
+mcmc_intervals(posterior, regex_pars = "wilderness ")
+mcmc_intervals(posterior, regex_pars = "prop_area ")
+
+mcmc_intervals(posterior, regex_pars = "salem")
+
+mcmc_iTntervals(posterior, regex_pars = " ")
+
+# TODO: want this graph to be organized by predictor, then show each city's response.
+# cities should be color coded
+
+# this appears to be not immediately obvious how to go about doing, so we'll leave it for next time
 
 
 
-
+#################################################################
+## Other (non Bayesian) directions
 
 ## why don't we actually just do one predictor here, to create some plots
 mod5 <- lmer(log_avgann ~ hmod_mean + (hmod_mean|city), data = predictors)
