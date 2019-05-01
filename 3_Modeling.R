@@ -12,6 +12,8 @@ library(corrgram)
 library(rstanarm)
 options(mc.cores = parallel::detectCores())
 library(bayesplot)
+library(tidybayes)
+library(ggstance)
 
 
 modplot <- function(x){
@@ -95,6 +97,10 @@ pp_check(nb_mod_bayes) + scale_x_continuous(limits = c(0, 10))
 ## Let's save this model out
 #write_rds(nb_mod_bayes, "StanModelRuns/nb_mod_bayes.rds")
 
+# or read it in
+nb_mod_bayes <- read_rds("StanModelRuns/nb_mod_bayes.rds")
+
+
 identical(names(nb_mod_bayes$coefficients),  names(mod1bayes$coefficients))
 cbind(nb_mod_bayes$coefficients, mod1bayes$coefficients)
 
@@ -134,13 +140,29 @@ mcmc_intervals(posterior, regex_pars = "prop_area ")
 
 mcmc_intervals(posterior, regex_pars = "salem")
 
-mcmc_iTntervals(posterior, regex_pars = " ")
+mcmc_intervals(posterior, regex_pars = " ")
 
 # TODO: want this graph to be organized by predictor, then show each city's response.
 # cities should be color coded
 
-# this appears to be not immediately obvious how to go about doing, so we'll leave it for next time
+credints <- nb_mod_bayes %>% 
+  spread_draws(b[param, city]) %>%
+  median_qi(estimate = b)
+  
+  
+ggplot(credints, aes(y = param, x = estimate, col = city)) +
+  geom_halfeyeh()
+#geom_pointrange(ymin = '.lower', ymax = '.upper')#, position = position_nudge(y = -.2))
 
+
+  
+ggplot(credints) +
+  geom_pointintervalh(aes(y = param, x = estimate, col = city), 
+                      position = position_dodgev(height = 1)) 
+  
+# Next steps: pretty this up. Would be nice if non-sig effects could be fainter
+# Also want 0 line, and more distance between parameters
+# City order needs to match plot order
 
 
 #################################################################
