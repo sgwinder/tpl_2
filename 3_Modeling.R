@@ -154,15 +154,37 @@ ggplot(credints, aes(y = param, x = estimate, col = city)) +
   geom_halfeyeh()
 #geom_pointrange(ymin = '.lower', ymax = '.upper')#, position = position_nudge(y = -.2))
 
-
+credints <- credints %>% mutate(sig = if_else(.lower < 0 & .upper > 0, FALSE, TRUE))
   
 ggplot(credints) +
-  geom_pointintervalh(aes(y = param, x = estimate, col = city), 
-                      position = position_dodgev(height = 1)) 
-  
-# Next steps: pretty this up. Would be nice if non-sig effects could be fainter
-# Also want 0 line, and more distance between parameters
-# City order needs to match plot order
+  geom_pointintervalh(aes(y = param, x = estimate, col = city, alpha = sig), 
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("Intercept", "Distance to Big City", "Freshwater",
+                              "Human Modification", "Ocean", "Area", "Railroad",
+                              "Street Density", "Wilderness"))
+
+#ggsave("figures/5city_coef_plot.png", width = 6.5, height = 7, unit = "in")
+
+## could also do a plot of the salem estimates here vs w/o the other 5 cities (informative?)
+
+### TODO: Check whether it changes things if we allow fixed effects for each of the parameters
+## I believe this would be the code:
+
+nb_mod_bayes_2 <- stan_glmer.nb(avg_ann_rnd ~ ocean + railroad + wilderness +
+                                  dist_stand + street_stand + hmod_mean  + freshwater + prop_area +
+                                  (ocean + railroad + wilderness + dist_stand + street_stand + 
+                                     hmod_mean  + freshwater + prop_area|city), 
+                                data = predictors)
+
 
 
 #################################################################
