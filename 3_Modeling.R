@@ -37,6 +37,12 @@ predictors <- predictors %>%
   mutate(dist_stand = mindist/max(mindist), 
          street_stand = if_else(is.na(street_len), 0, street_len/max(street_len, na.rm = T)))
 
+citytp <- "charleston"
+corrgram(predictors %>% filter(city == citytp) %>%
+           select(log_avg_ann_ud, prop_area, freshwater, ocean, railroad, 
+                               wilderness, hmod_mean, dist_stand, street_stand), 
+         upper.panel = panel.pts, lower.panel = panel.cor, main = citytp)
+
 #predictors %>% filter(is.na(street_len) )
 plot(density(predictors$log_avgann))
 
@@ -184,8 +190,17 @@ nb_mod_bayes_2 <- stan_glmer.nb(avg_ann_rnd ~ ocean + railroad + wilderness +
                                   (ocean + railroad + wilderness + dist_stand + street_stand + 
                                      hmod_mean  + freshwater + prop_area|city), 
                                 data = predictors)
+# write it out
+#write_rds(nb_mod_bayes_2, "StanModelRuns/nb_mod_bayes_2.rds")
 
 
+# started at 2:24
+launch_shinystan(nb_mod_bayes_2)
+loo(nb_mod_bayes_2)
+loo(nb_mod_bayes)
+
+compare_models(loo(nb_mod_bayes), loo(nb_mod_bayes_2))
+# favors nb_mod_bayes
 
 #################################################################
 ## Other (non Bayesian) directions
