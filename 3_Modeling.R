@@ -36,6 +36,8 @@ summary(predictors)
 predictors <- predictors %>% 
   mutate(dist_stand = mindist/max(mindist), 
          street_stand = if_else(is.na(street_len), 0, street_len/max(street_len, na.rm = T)))
+predictors$avg_ann_rnd <- round(predictors$avg_ann_ud)
+
 
 citytp <- "charleston"
 corrgram(predictors %>% filter(city == citytp) %>%
@@ -46,41 +48,200 @@ corrgram(predictors %>% filter(city == citytp) %>%
 #predictors %>% filter(is.na(street_len) )
 plot(density(predictors$log_avgann))
 
-mod1 <- lm(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-             dist_stand + street_stand + hmod_mean, data = predictors)
-su(mod1); modplot(mod1)
 
-pairs(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-        mindist + street_len + hmod_mean, data = predictors)
 
-mod2 <- lmer(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
-               dist_stand + street_stand + hmod_mean + (1|city), data = predictors)
-su(mod2); modplot(mod2)
-ranef(mod2)
 
-mod3 <- lm(log_avgann ~ -1 + prop_area + freshwater + ocean + railroad + wilderness +
-             dist_stand + street_stand + hmod_mean + city, data = predictors)
-su(mod3); modplot(mod3)
+## could also do a plot of the salem estimates here vs w/o the other 5 cities (informative?)
 
-## adding random slopes/intercepts for each variable
-mod2 <- lmer(log_avgann ~ -1 + (ocean + railroad + wilderness +
-               dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
-su(mod2); modplot(mod2)
-ranef(mod2)
-predictors$mod2preds <- fitted(mod2)
+### NOTE: Above (now below) code is inappropriate because it forces the grand slope for each parameter to
+# be 0. More correct code is here:
 
-ggplot(predictors, aes(x = prop_area, y = log_avgann, group = city)) +
-  geom_point(alpha = .3) +
-  geom_line(aes(y = mod2preds)) +
-  facet_wrap(~city)
-# too much else going on - I think these lines are so scribbly because there are multiple predictors
+nb_mod_bayes_2 <- stan_glmer.nb(avg_ann_rnd ~ ocean + railroad + wilderness +
+                                  dist_stand + street_stand + hmod_mean  + freshwater + prop_area +
+                                  (ocean + railroad + wilderness + dist_stand + street_stand + 
+                                     hmod_mean  + freshwater + prop_area|city), 
+                                data = predictors,
+                                link = "log",
+                                prior = normal(),
+                                prior_intercept = normal(),
+                                prior_aux = exponential(),
+                                prior_covariance = decov(),
+                                adapt_delta = .99)
+#pairs(nb_mod_bayes_2, regex_pars = "Sigma")
 
+# write it out
+#write_rds(nb_mod_bayes_2, "StanModelRuns/nb_mod_bayes_2_99.rds")
+nb_mod_bayes_2 <- read_rds("StanModelRuns/nb_mod_bayes_2_99.rds")
+
+launch_shinystan(nb_mod_bayes_2)
+summary(nb_mod_bayes_2)
+loo(nb_mod_bayes_2)
+
+
+# looking at posterior predictions vs observed data
+pp_check(nb_mod_bayes_2) + scale_x_continuous(limits = c(0, 10))
+
+### I want to plot the residuals on a map
+nb_mod_bayes_output <- tibble(cityxgrid = nb_mod_bayes_2$data$cityxgrid, 
+                              avg_ann_rnd = nb_mod_bayes_2$data$avg_ann_rnd,
+                              resids_nb_mod_bayes = nb_mod_bayes_2$residuals, 
+                              fitted_nb_mod_bayes = nb_mod_bayes_2$fitted.values)
+
+## pulling in a gridded map
+library(sf)
+ROS_gridded_pid <- st_read("GIS/Data/", "five_cities_AOI_pid")
+ROS_gridded_pid <- ROS_gridded_pid %>% mutate(cityxgrid = paste0(city, "x", grid_id))
+
+## joining on the model outputs
+cities_mod_output <- ROS_gridded_pid %>% left_join(nb_mod_bayes_output, by = "cityxgrid")
+#plot(cities_mod_output %>% filter(city == "salem"))
+
+## writing it out to a shapefile so I can click around in QGIS
+#st_write(cities_mod_output, "GIS/Data/nb_mod_bayes_2_output.shp")
+
+## Want: plot that shows overall effects of each predictor
+
+# prep the model chains for plotting
+posterior <- as.array(nb_mod_bayes_2)
+dimnames(posterior)
+
+mcmc_intervals(posterior, pars = c("(Intercept)", "ocean", "railroad", "wilderness",
+                                   "dist_stand", "street_stand", "hmod_mean", "freshwater",
+                                   "prop_area"))
+
+## Want: some measure of variability between cities by predictor (just a table of median sd? plot?)
+
+mcmc_intervals(posterior, pars = c("Sigma[city:(Intercept),(Intercept)]",
+                                   "Sigma[city:ocean,ocean]",
+                                   "Sigma[city:railroad,railroad]",
+                                   "Sigma[city:wilderness,wilderness]",
+                                   "Sigma[city:dist_stand,dist_stand]",
+                                   "Sigma[city:street_stand,street_stand]",
+                                   "Sigma[city:hmod_mean,hmod_mean]",
+                                   "Sigma[city:freshwater,freshwater]",
+                                   "Sigma[city:prop_area,prop_area]"))
+
+## Want: some way of saying whether there seem to be specific differences between the cities and how
+# they respond to some set of predictors. Possibly by adding together e.g. Ocean and d[ocean, city:charleston]
+# to get an estimate of each city's ocean slope
+
+# let's use tidybayes
+get_variables(nb_mod_bayes_2)
+group_slopes <- nb_mod_bayes_2 %>% 
+  gather_draws(`(Intercept)`, ocean, railroad, wilderness, dist_stand, street_stand,
+               hmod_mean, freshwater, prop_area)
+
+city_slopes <- nb_mod_bayes_2 %>%
+  spread_draws(b[param, city])
+
+# join them together
+combined_slopes <- city_slopes %>% 
+  left_join(group_slopes, by = c(".chain", ".iteration", ".draw", "param" = ".variable")) %>%
+  mutate(city_est = b + `.value`)
+
+combined_qi <- combined_slopes %>%
+  median_qi(city_est)
+
+# creating a grouping variable of whether or not the 95% cred int crosses 0
+combined_qi <- combined_qi %>% mutate(sig = if_else(.lower < 0 & .upper > 0, FALSE, TRUE))
+
+## plot it
+ggplot(combined_qi) +
+  geom_pointintervalh(aes(y = param, x = city_est, col = city, alpha = sig),
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("(Intercept)" = "Intercept", 
+                              "dist_stand" = "Distance to Big City", 
+                              "freshwater" = "Freshwater",
+                              "hmod_mean" = "Human Modification", 
+                              "ocean" = "Ocean", 
+                              "prop_area" = "Area", 
+                              "railroad" = "Railroad",
+                              "street_stand" = "Street Density", 
+                              "wilderness" = "Wilderness")) +
+  xlab("Coefficient")
+
+#ggsave("figures/5_city_coef_plot_2.png", width = 6.5, height = 7, unit = "in")
+
+### plot just wilderness
+ggplot(combined_qi %>% filter(param == "wilderness")) +
+  geom_pointintervalh(aes(y = param, x = city_est, col = city, alpha = sig),
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("(Intercept)" = "Intercept", 
+                              "dist_stand" = "Distance to Big City", 
+                              "freshwater" = "Freshwater",
+                              "hmod_mean" = "Human Modification", 
+                              "ocean" = "Ocean", 
+                              "prop_area" = "Area", 
+                              "railroad" = "Railroad",
+                              "street_stand" = "Street Density", 
+                              "wilderness" = "Wilderness")) +
+  xlab("Coefficient")
+#ggsave("figures/5_city_coef_plot_2_wilderness.png", width = 5, height = 3.5, unit = "in")
+
+
+### same for area ###
+# why is prop_area's sigma so big?
+
+# because in pittsburgh and wichita, having a greater proportion of the gridcell be public
+# is very positively related to visitation, while in the other cities it is less so.
+# Likely because the other cities have big tracts of public land which don't see much use
+
+ggplot(combined_qi %>% filter(param == "prop_area")) +
+  geom_pointintervalh(aes(y = param, x = city_est, col = city),
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("(Intercept)" = "Intercept", 
+                              "dist_stand" = "Distance to Big City", 
+                              "freshwater" = "Freshwater",
+                              "hmod_mean" = "Human Modification", 
+                              "ocean" = "Ocean", 
+                              "prop_area" = "Area", 
+                              "railroad" = "Railroad",
+                              "street_stand" = "Street Density", 
+                              "wilderness" = "Wilderness")) +
+  xlab("Coefficient")
+#ggsave("figures/5_city_coef_plot_2_area.png", width = 5, height = 3.5, unit = "in")
+
+
+# etc
+
+
+
+#################### Old things ###########
+
+### incorrect Bayesian models + graphs ###
 #### real quick, since the model above had a singular fit, which is probably an issue...
 ## let's try a bayesian model from rstanarm (https://stats.stackexchange.com/questions/378939/dealing-with-singular-fit-in-mixed-models)
 ## Note that this is quick a sloppy, so should probably be done more carefully if I"m going for it later
 
 mod1bayes <- stan_lmer(log_avgann ~ (ocean + railroad + wilderness +
-                           dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
+                                       dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
 mod1bayes
 # write it out
 #write_rds(mod1bayes, "StanModelRuns/lm_mod_bayes.rds")
@@ -89,10 +250,9 @@ launch_shinystan(mod1bayes)
 # the intercept term seems to be having some issues, and could perhaps be dropped
 # But more importantly, it's clear that the normality assumption is pretty wildly inappropriate
 # Perhaps we could try with a neg bin...
-predictors$avg_ann_rnd <- round(predictors$avg_ann_ud)
 
 nb_mod_bayes <- stan_glmer.nb(avg_ann_rnd ~ (ocean + railroad + wilderness +
-                                              dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
+                                               dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), data = predictors)
 
 nb_mod_bayes
 launch_shinystan(nb_mod_bayes)
@@ -112,9 +272,9 @@ cbind(nb_mod_bayes$coefficients, mod1bayes$coefficients)
 
 ### I want to plot the residuals on a map
 nb_mod_bayes_output <- tibble(cityxgrid = nb_mod_bayes$data$cityxgrid, 
-       avg_ann_rnd = nb_mod_bayes$data$avg_ann_rnd,
-       resids_nb_mod_bayes = nb_mod_bayes$residuals, 
-       fitted_nb_mod_bayes = nb_mod_bayes$fitted.values)
+                              avg_ann_rnd = nb_mod_bayes$data$avg_ann_rnd,
+                              resids_nb_mod_bayes = nb_mod_bayes$residuals, 
+                              fitted_nb_mod_bayes = nb_mod_bayes$fitted.values)
 
 ## pulling in a gridded mpa
 library(sf)
@@ -154,14 +314,14 @@ mcmc_intervals(posterior, regex_pars = " ")
 credints <- nb_mod_bayes %>% 
   spread_draws(b[param, city]) %>%
   median_qi(estimate = b)
-  
-  
+
+
 ggplot(credints, aes(y = param, x = estimate, col = city)) +
   geom_halfeyeh()
 #geom_pointrange(ymin = '.lower', ymax = '.upper')#, position = position_nudge(y = -.2))
 
 credints <- credints %>% mutate(sig = if_else(.lower < 0 & .upper > 0, FALSE, TRUE))
-  
+
 ggplot(credints) +
   geom_pointintervalh(aes(y = param, x = estimate, col = city, alpha = sig), 
                       position = position_dodge2v(height = .8, reverse = T)) +
@@ -180,30 +340,45 @@ ggplot(credints) +
 
 #ggsave("figures/5city_coef_plot.png", width = 6.5, height = 7, unit = "in")
 
-## could also do a plot of the salem estimates here vs w/o the other 5 cities (informative?)
-
-### TODO: Check whether it changes things if we allow fixed effects for each of the parameters
-## I believe this would be the code:
-
-nb_mod_bayes_2 <- stan_glmer.nb(avg_ann_rnd ~ ocean + railroad + wilderness +
-                                  dist_stand + street_stand + hmod_mean  + freshwater + prop_area +
-                                  (ocean + railroad + wilderness + dist_stand + street_stand + 
-                                     hmod_mean  + freshwater + prop_area|city), 
-                                data = predictors)
-# write it out
-#write_rds(nb_mod_bayes_2, "StanModelRuns/nb_mod_bayes_2.rds")
 
 
-# started at 2:24
-launch_shinystan(nb_mod_bayes_2)
-loo(nb_mod_bayes_2)
-loo(nb_mod_bayes)
-
-compare_models(loo(nb_mod_bayes), loo(nb_mod_bayes_2))
-# favors nb_mod_bayes
 
 #################################################################
 ## Other (non Bayesian) directions
+
+mod1 <- lm(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
+             dist_stand + street_stand + hmod_mean, data = predictors)
+su(mod1); modplot(mod1)
+
+pairs(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
+        mindist + street_len + hmod_mean, data = predictors)
+
+mod2 <- lmer(log_avgann ~ prop_area + freshwater + ocean + railroad + wilderness +
+               dist_stand + street_stand + hmod_mean + (1|city), data = predictors)
+su(mod2); modplot(mod2)
+ranef(mod2)
+
+mod3 <- lm(log_avgann ~ -1 + prop_area + freshwater + ocean + railroad + wilderness +
+             dist_stand + street_stand + hmod_mean + city, data = predictors)
+su(mod3); modplot(mod3)
+
+## adding random slopes/intercepts for each variable
+mod2 <- lmer(log_avgann ~ ocean + railroad + wilderness +
+               dist_stand + street_stand + hmod_mean  + freshwater + prop_area +
+               (ocean + railroad + wilderness +
+                  dist_stand + street_stand + hmod_mean  + freshwater + prop_area|city), 
+             data = predictors)
+su(mod2); modplot(mod2)
+ranef(mod2)
+predictors$mod2preds <- fitted(mod2)
+
+ggplot(predictors, aes(x = prop_area, y = log_avgann, group = city)) +
+  geom_point(alpha = .3) +
+  geom_line(aes(y = mod2preds)) +
+  facet_wrap(~city)
+# too much else going on - I think these lines are so scribbly because there are multiple predictors
+
+
 
 ## why don't we actually just do one predictor here, to create some plots
 mod5 <- lmer(log_avgann ~ hmod_mean + (hmod_mean|city), data = predictors)
