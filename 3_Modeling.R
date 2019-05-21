@@ -48,6 +48,15 @@ corrgram(predictors %>% filter(city == citytp) %>%
 #predictors %>% filter(is.na(street_len) )
 plot(density(predictors$log_avgann))
 
+## plot UD vs prop area by city
+ggplot(predictors) +
+  geom_point(aes(x = prop_area, y = log_avg_ann_ud, col = city)) +
+  facet_wrap(~city)
+
+## UD vs distance to big city
+ggplot(predictors) +
+  geom_point(aes(x = dist_stand, y = log_avg_ann_ud, col = city)) +
+  facet_wrap(~city)
 
 
 
@@ -229,8 +238,56 @@ ggplot(combined_qi %>% filter(param == "prop_area")) +
 #ggsave("figures/5_city_coef_plot_2_area.png", width = 5, height = 3.5, unit = "in")
 
 
-# etc
+## Let's do ocean and freshwater
 
+ggplot(combined_qi %>% filter(param == "ocean" | param == "freshwater")) +
+  geom_pointintervalh(aes(y = param, x = city_est, col = city, alpha = sig),
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("(Intercept)" = "Intercept", 
+                              "dist_stand" = "Distance to Big City", 
+                              "freshwater" = "Freshwater",
+                              "hmod_mean" = "Human Modification", 
+                              "ocean" = "Ocean", 
+                              "prop_area" = "Area", 
+                              "railroad" = "Railroad",
+                              "street_stand" = "Street Density", 
+                              "wilderness" = "Wilderness")) +
+  xlab("Coefficient")
+#ggsave("figures/5_city_coef_plot_2_water.png", width = 5, height = 4, unit = "in")
+
+### Distance to city > 150k
+ggplot(combined_qi %>% filter(param == "dist_stand")) +
+  geom_pointintervalh(aes(y = param, x = city_est, col = city),
+                      position = position_dodge2v(height = .8, reverse = T)) +
+  scale_color_brewer(palette = "Dark2",
+                     name = NULL,
+                     breaks = c("city:charleston", "city:pittsburgh",
+                                "city:salem", "city:tucson", "city:wichita"),
+                     labels = c("Charleston", "Pittsburgh", "Salem",
+                                "Tucson", "Wichita")) +
+  scale_alpha_discrete(NULL, NULL, NULL) +
+  vline_0(col = "gray70") +
+  scale_y_discrete(name = "Variable",
+                   labels = c("(Intercept)" = "Intercept", 
+                              "dist_stand" = "Distance to Big City", 
+                              "freshwater" = "Freshwater",
+                              "hmod_mean" = "Human Modification", 
+                              "ocean" = "Ocean", 
+                              "prop_area" = "Area", 
+                              "railroad" = "Railroad",
+                              "street_stand" = "Street Density", 
+                              "wilderness" = "Wilderness")) +
+  xlab("Coefficient")
+#ggsave("figures/5_city_coef_plot_2_dist.png", width = 5, height = 3.5, unit = "in")
 
 
 #################### Old things ###########
